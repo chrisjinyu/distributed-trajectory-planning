@@ -1,6 +1,6 @@
 """Consensus ADMM driver for distributed multi-agent trajectory planning.
 
-Owner: Christian Yu.
+Owner: Christian Yu
 
 Formulation
 -----------
@@ -9,25 +9,18 @@ j in N_i, a local belief tilde_theta_i^(j). The consensus constraint
 tilde_theta_i^(j) = theta_j is enforced via scaled dual variables u_dual_ij
 that are updated each iteration.
 
-Scaled ADMM form throughout. Per-iteration flow:
+DPP-compliance
+--------------
+The per-agent subproblem is built with rho as a *constant* (not a CVXPY
+Parameter) so the problem stays DPP and CVXPY can cache canonicalization.
+When rho changes (adaptive residual balancing), the QPs are rebuilt.
 
-    1. Each agent solves its local QP (parallel in principle; serial here).
-       -- Output: theta_i (own) and tilde_theta_i^(j) (belief of each j).
-    2. Agents BROADCAST their own theta_i to neighbors.
-       -- Each agent i then knows theta_j for j in N_i.
-    3. Dual update on each directed edge (i, j):
-           u_dual_ij <- u_dual_ij + (tilde_theta_i^(j) - theta_j)
-       This drives agent i's BELIEF toward neighbor j's ACTUAL trajectory.
-    4. Collision normals are re-linearized from own-theta positions.
-    5. Primal / dual residuals computed; loop terminates on tolerance.
-
-At convergence, tilde_theta_i^(j) = theta_j for every edge, so agent i's
-plan (which uses its belief in collision constraints) is consistent with
-j's actual trajectory.
-
-Returns
--------
-ADMMResult.x stacks each agent's own theta_i, shape (N, H+1, 4).
+Per-iteration flow:
+    1. Each agent solves its local QP.
+    2. Agents broadcast their own theta_i to neighbors.
+    3. Dual update per directed edge: u_dual_ij += tilde_theta_i^(j) - theta_j.
+    4. Re-linearize collision normals from own-theta positions.
+    5. Residuals + stopping check.
 """
 
 from __future__ import annotations
@@ -62,6 +55,11 @@ class ADMMResult:
     history: ADMMHistory
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
 def _compute_local_objective(scenario: Scenario, x: np.ndarray, u: np.ndarray) -> float:
     Q, R = scenario.Q, scenario.R
     total = 0.0
@@ -75,8 +73,6 @@ def _compute_local_objective(scenario: Scenario, x: np.ndarray, u: np.ndarray) -
 def _compute_constraint_violation(
     scenario: Scenario, x: np.ndarray, n_ij: dict[tuple[int, int], np.ndarray]
 ) -> float:
-    """Max violation of the linearized collision half-spaces over all edges,
-    evaluated on each agent's OWN positions (not beliefs)."""
     worst = 0.0
     for (i, j), n in n_ij.items():
         p_i = x[i, :, 0:2]
@@ -90,10 +86,6 @@ def _compute_constraint_violation(
 def _update_collision_normals(
     scenario: Scenario, qps: dict[int, LocalQP], theta_own: np.ndarray
 ) -> dict[tuple[int, int], np.ndarray]:
-    """Recompute linearization normals from the agents' OWN trajectories.
-
-    theta_own : (N, H+1, 4)
-    """
     edge_normals: dict[tuple[int, int], np.ndarray] = {}
     for i, j in scenario.graph.edges():
         a, b = (i, j) if i < j else (j, i)
@@ -112,11 +104,6 @@ def _update_collision_normals(
 
 
 def _straight_line_warm_start(scenario: Scenario) -> np.ndarray:
-    """Per-agent straight-line interpolation with a small symmetry-breaking
-    bump to avoid degenerate collision normals at mid-horizon crossings.
-
-    Returns : (N, H+1, 4)
-    """
     N, H = scenario.N, scenario.H
     lines = np.zeros((N, H + 1, 4))
     alphas = np.linspace(0.0, 1.0, H + 1)
@@ -130,6 +117,53 @@ def _straight_line_warm_start(scenario: Scenario) -> np.ndarray:
             bump = 4 * a * (1 - a) * offset
             lines[k, kk] = (1 - a) * x_start + a * x_end + bump
     return lines
+
+
+def _capture_state(qps: dict[int, LocalQP], scenario: Scenario) -> dict:
+    """Snapshot all Parameter values so they can be restored after rebuild."""
+    state = {}
+    for i in range(scenario.N):
+        state[i] = {
+            "x0": qps[i].x0.value.copy(),
+            "theta_j_hat": {j: qps[i].theta_j_hat[j].value.copy() for j in scenario.neighbors(i)},
+            "u_dual": {j: qps[i].u_dual[j].value.copy() for j in scenario.neighbors(i)},
+            "n_ij": {j: qps[i].n_ij[j].value.copy() for j in scenario.neighbors(i)},
+        }
+    return state
+
+
+def _restore_state(
+    qps: dict[int, LocalQP], state: dict, scenario: Scenario, dual_scale: float = 1.0
+) -> None:
+    for i in range(scenario.N):
+        qps[i].x0.value = state[i]["x0"]
+        for j in scenario.neighbors(i):
+            qps[i].theta_j_hat[j].value = state[i]["theta_j_hat"][j]
+            qps[i].u_dual[j].value = state[i]["u_dual"][j] * dual_scale
+            qps[i].n_ij[j].value = state[i]["n_ij"][j]
+
+
+def _build_qps(
+    scenario: Scenario,
+    rho: float,
+    include_collision: bool,
+    collision_slack_weight: float,
+) -> dict[int, LocalQP]:
+    return {
+        i: build_local_qp(
+            scenario,
+            i,
+            rho=rho,
+            include_collision=include_collision,
+            collision_slack_weight=collision_slack_weight,
+        )
+        for i in range(scenario.N)
+    }
+
+
+# ---------------------------------------------------------------------------
+# Main driver
+# ---------------------------------------------------------------------------
 
 
 def solve_consensus_admm(
@@ -149,35 +183,14 @@ def solve_consensus_admm(
     mu: float = 10.0,
     verbose: bool = False,
 ) -> ADMMResult:
-    """Run distributed Consensus ADMM (tilde-belief formulation).
+    """Run distributed Consensus ADMM (DPP-compliant formulation).
 
-    Parameters
-    ----------
-    scenario : Scenario
-    rho : float
-        Initial ADMM penalty parameter.
-    max_iter : int
-    eps_abs, eps_rel : float
-        Tolerances for the combined stopping criterion (Boyd 2011 §3.3.1).
-    solver : str
-        CVXPY solver. Default Clarabel for stability under parameter changes.
-    solver_opts : dict, optional
-        Extra kwargs forwarded to Problem.solve.
-    initial_guess : ndarray of shape (N, H+1, 4), optional
-        Per-agent trajectory warm-start. Each agent's belief of j is
-        seeded from the j-th entry.
-    include_collision : bool
-    collision_slack_weight : float
-    adaptive_rho : bool
-        He-Yang-Wang residual balancing.
-    tau_incr, tau_decr, mu : float
-        Adaptive-rho hyperparameters.
-    verbose : bool
+    See module docstring for the algorithm. Key user-facing parameters:
+      rho                      : initial ADMM penalty.
+      adaptive_rho             : if True, applies residual balancing (rebuilds QPs).
+      collision_slack_weight   : penalty weight on linearized-collision slack.
 
-    Returns
-    -------
-    ADMMResult
-        .x is (N, H+1, 4) stack of each agent's own theta_i.
+    Returns an ADMMResult with the converged per-agent own trajectory.
     """
     if solver_opts is None:
         if solver == cp.OSQP:
@@ -193,20 +206,10 @@ def solve_consensus_admm(
     N = scenario.N
     H = scenario.H
 
-    # --- Build per-agent QPs once; reuse across iterations ---
-    qps: dict[int, LocalQP] = {
-        i: build_local_qp(
-            scenario,
-            i,
-            include_collision=include_collision,
-            collision_slack_weight=collision_slack_weight,
-        )
-        for i in range(N)
-    }
-    for qp in qps.values():
-        qp.rho.value = rho
+    # --- Build per-agent QPs with the initial rho baked in ---
+    qps = _build_qps(scenario, rho, include_collision, collision_slack_weight)
 
-    # --- Initial own-trajectory warm-start ---
+    # --- Own-trajectory warm-start ---
     if initial_guess is None:
         theta_own = _straight_line_warm_start(scenario)
     else:
@@ -214,14 +217,12 @@ def solve_consensus_admm(
 
     u_store = np.zeros((N, H, 2))
 
-    # --- Seed belief parameters: each agent believes its neighbors follow the
-    #     straight-line warm-start as well. Seed duals to zero.
+    # Seed belief Parameters and duals.
     for i in range(N):
         for j in scenario.neighbors(i):
             qps[i].theta_j_hat[j].value = theta_own[j].copy()
             qps[i].u_dual[j].value = np.zeros((H + 1, 4))
 
-    # --- Seed collision normals from own-trajectory warm-start ---
     edge_normals = _update_collision_normals(scenario, qps, theta_own)
 
     history = ADMMHistory()
@@ -231,7 +232,7 @@ def solve_consensus_admm(
     for k in range(max_iter):
         theta_own_prev = theta_own.copy()
 
-        # --- Step 1: local QP solves (primal update) ---
+        # --- Step 1: primal update (parallel in principle) ---
         for i in range(N):
             try:
                 qps[i].problem.solve(solver=solver, warm_start=True, **solver_opts)
@@ -243,8 +244,8 @@ def solve_consensus_admm(
             if status not in ("optimal", "optimal_inaccurate"):
                 raise RuntimeError(
                     f"Agent {i} subproblem returned status '{status}' "
-                    f"at iteration {k}. Try a different solver or pass "
-                    f"solver_opts with higher max_iter."
+                    f"at iteration {k}. Try a different solver or raise "
+                    f"solver_opts['max_iter']."
                 )
             theta_own[i] = qps[i].theta.value
             u_store[i] = qps[i].u.value
@@ -252,13 +253,9 @@ def solve_consensus_admm(
         # --- Step 2: broadcast own theta_i; each agent updates theta_j_hat ---
         for i in range(N):
             for j in scenario.neighbors(i):
-                # Agent i receives neighbor j's just-computed theta_j.
                 qps[i].theta_j_hat[j].value = theta_own[j].copy()
 
         # --- Step 3: dual update on each directed edge (i, j) ---
-        # u_dual_ij <- u_dual_ij + (tilde_theta_i^(j) - theta_j)
-        # After step 2, theta_j_hat[j] == theta_j (the just-computed value),
-        # so this is symmetric to the scaled-ADMM convention.
         for i in range(N):
             for j in scenario.neighbors(i):
                 tilde_val = qps[i].tilde[j].value
@@ -269,7 +266,6 @@ def solve_consensus_admm(
             edge_normals = _update_collision_normals(scenario, qps, theta_own)
 
         # --- Step 5: residuals ---
-        # Primal residual = sum over directed edges of ||tilde_i^(j) - theta_j||^2
         primal_sq = 0.0
         for i in range(N):
             for j in scenario.neighbors(i):
@@ -277,7 +273,6 @@ def solve_consensus_admm(
                 primal_sq += float(np.sum((tilde_val - theta_own[j]) ** 2))
         primal_res = np.sqrt(primal_sq)
 
-        # Dual residual proxy: change in own theta scaled by rho.
         dual_res = rho * np.sqrt(float(np.sum((theta_own - theta_own_prev) ** 2)))
 
         # --- Diagnostics ---
@@ -309,10 +304,8 @@ def solve_consensus_admm(
             )
 
         # --- Combined Boyd-style tolerance check ---
-        # Count scalars in the primal residual: sum_i |N_i| * (H+1) * 4
         p = 2 * scenario.graph.number_of_edges() * (H + 1) * 4  # directed edges
         n = N * (H + 1) * 4
-        # norm of the primal "A z" side = sqrt(sum_i sum_j ||theta_j||^2)
         belief_norm = np.sqrt(
             sum(float(np.sum(theta_own[j] ** 2)) for i in range(N) for j in scenario.neighbors(i))
         )
@@ -329,20 +322,25 @@ def solve_consensus_admm(
             converged = True
             break
 
-        # --- Adaptive rho ---
+        # --- Adaptive rho (He-Yang-Wang residual balancing) ---
+        # Because rho is baked into the QP as a constant for DPP, changing
+        # it requires REBUILDING the QPs. We snapshot Parameter values,
+        # rebuild, then restore (with the scaled-form dual rescaling).
         if adaptive_rho:
+            new_rho = None
+            dual_scale = 1.0
             if primal_res > mu * dual_res:
-                rho = rho * tau_incr
-                for qp in qps.values():
-                    qp.rho.value = rho
-                    for j in qp.u_dual:
-                        qp.u_dual[j].value = qp.u_dual[j].value / tau_incr
+                new_rho = rho * tau_incr
+                dual_scale = 1.0 / tau_incr
             elif dual_res > mu * primal_res:
-                rho = rho / tau_decr
-                for qp in qps.values():
-                    qp.rho.value = rho
-                    for j in qp.u_dual:
-                        qp.u_dual[j].value = qp.u_dual[j].value * tau_decr
+                new_rho = rho / tau_decr
+                dual_scale = tau_decr
+
+            if new_rho is not None:
+                state = _capture_state(qps, scenario)
+                qps = _build_qps(scenario, new_rho, include_collision, collision_slack_weight)
+                _restore_state(qps, state, scenario, dual_scale=dual_scale)
+                rho = new_rho
 
     return ADMMResult(
         x=theta_own,
