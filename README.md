@@ -24,14 +24,14 @@ To run the project in Colab, place the following two cells at the very top of yo
 #### 1. Fetch the repository
 
 ```python
-!git clone [https://github.com/chrisjinyu/distributed-trajectory-planning.git](https://github.com/chrisjinyu/distributed-trajectory-planning.git)
+!git clone https://github.com/chrisjinyu/distributed-trajectory-planning.git
 %cd distributed-trajectory-planning
 
 # Install uv in Colab
 !pip install uv
 
-# Install the pyproject.toml dependencies directly into Colab's system environment. 
-# The '-e .' flag performs an editable install so Colab can find the src/dtp module.
+# Use uv to install the pyproject.toml dependencies directly into Colab's global system environment. 
+# The '-e .' flag performs an editable install, which tells Colab where to find the src/dtp module.
 !uv pip install --system -e .
 ```
 
