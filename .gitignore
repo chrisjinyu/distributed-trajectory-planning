@@ -1,0 +1,44 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Virtual envs ---
+.venv/
+venv/
+env/
+
+# --- uv ---
+# Note: we DO commit uv.lock. That file is what makes builds reproducible.
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+# Strip notebook outputs before committing (see README)
+
+# --- IDEs / editors ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# --- Experiment outputs (keep folder, ignore contents) ---
+results/*
+!results/.gitkeep
+experiments/runs/
+*.npz
+*.pkl
+*.log
+
+# --- OS ---
+Thumbs.db
