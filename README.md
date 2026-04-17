@@ -16,6 +16,25 @@ Yen-Ru Chin.
 `uv` is a fast, reproducible Python package manager. It installs Python itself
 and locks dependencies exactly, so everyone on the team runs identical code.
 
+**Google Colab:**
+Since this repository is structured around `uv` for local virtual environment management and uses a `src/` layout, it requires a specific setup to work with Google Colab's persistent global environment. 
+
+To run the project in Colab, place the following in a separate cell at the very top of your notebook.
+
+#### 1. Fetch the repository
+
+```python
+!git clone https://github.com/chrisjinyu/distributed-trajectory-planning.git
+%cd distributed-trajectory-planning
+
+# Install uv in Colab
+!pip install uv
+
+# Use uv to install the pyproject.toml dependencies directly into Colab's global system environment. 
+# The '-e .' flag performs an editable install, which tells Colab where to find the src/dtp module.
+!uv pip install --system -e .
+```
+
 **macOS / Linux:**
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
