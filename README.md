@@ -19,7 +19,7 @@ and locks dependencies exactly, so everyone on the team runs identical code.
 **Google Colab:**
 Since this repository is structured around `uv` for local virtual environment management and uses a `src/` layout, it requires a specific setup to work with Google Colab's persistent global environment. 
 
-To run the project in Colab, place the following two cells at the very top of your notebook.
+To run the project in Colab, place the following in a separate cell at the very top of your notebook.
 
 #### 1. Fetch the repository
 
