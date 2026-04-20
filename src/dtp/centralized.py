@@ -85,8 +85,15 @@ def solve_centralized(
     problem = cp.Problem(cp.Minimize(cost), constraints)
     problem.solve(solver=solver)
 
-    x_val = np.stack([xi.value for xi in x], axis=0)
-    u_val = np.stack([ui.value for ui in u], axis=0)
+    # When the solver fails, xi.value is None and np.stack silently produces
+    # a 1D object array. Return correctly-shaped NaN arrays instead so
+    # callers can detect failure via isnan and not explode with an IndexError.
+    if any(xi.value is None for xi in x):
+        x_val = np.full((N, H + 1, 4), np.nan)
+        u_val = np.full((N, H, 2), np.nan)
+    else:
+        x_val = np.stack([xi.value for xi in x], axis=0)
+        u_val = np.stack([ui.value for ui in u], axis=0)
 
     return CentralizedSolution(
         x=x_val, u=u_val, objective=float(problem.value), status=problem.status
