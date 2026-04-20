@@ -98,6 +98,30 @@ uv run ruff format .                  # format
 uv run python -m dtp.admm             # run a module
 ```
 
+### Generating the presentation videos
+
+The presentation uses side-by-side MP4 animations of drones flying along
+each solver's planned trajectories. Regenerate them all with:
+
+```bash
+./scripts/generate_videos.sh          # writes to results/videos/
+```
+
+Requires `ffmpeg` on PATH. The script invokes `experiments/animate.py`,
+which reads YAMLs from `experiments/configs/` (scenarios) and
+`experiments/configs/optimizers/` (per-solver parameters) and renders
+one panel per optimizer. You can also run the CLI directly for a custom
+scenario/optimizer combination:
+
+```bash
+uv run python -m experiments.animate \
+    --scenario experiments/configs/four_drone_ring.yaml \
+    --optimizer experiments/configs/optimizers/penalty_default.yaml \
+    --optimizer experiments/configs/optimizers/admm_default.yaml \
+    --optimizer experiments/configs/optimizers/centralized_default.yaml \
+    --output results/videos/my_run.mp4 --fps 3
+```
+
 ---
 
 ## Adding a dependency
@@ -117,20 +141,27 @@ This updates `pyproject.toml` *and* `uv.lock`. Commit both files.
 
 ```
 distributed-trajectory-planning/
-├── pyproject.toml           # Dependencies + tool config
-├── uv.lock                  # Exact pinned versions (commit this!)
-├── .python-version          # Pinned Python version
-├── src/dtp/                 # Main package
-│   ├── dynamics.py          # Double-integrator model, A/B matrices
-│   ├── mpc.py               # Per-agent MPC QP formulation
-│   ├── admm.py              # Consensus ADMM (Christian)
-│   ├── penalty.py           # Distributed penalty baseline (Yen-Ru)
-│   ├── centralized.py       # Joint QP reference (Yuyang)
-│   └── utils.py             # Shared helpers
-├── tests/                   # Unit tests + smoke test
-├── notebooks/               # Exploration (strip outputs before commit)
-├── experiments/configs/     # Scenario configs (YAML/JSON)
-└── results/                 # Figures, logs (gitignored)
+├── pyproject.toml                   # Dependencies + tool config
+├── uv.lock                          # Exact pinned versions (commit this!)
+├── .python-version                  # Pinned Python version
+├── src/dtp/                         # Main package
+│   ├── dynamics.py                  # Double-integrator model, A/B matrices
+│   ├── mpc.py                       # Per-agent MPC QP formulation
+│   ├── admm.py                      # Consensus ADMM (Christian)
+│   ├── penalty.py                   # Distributed penalty baseline (Yen-Ru)
+│   ├── centralized.py               # Joint QP reference (Yuyang)
+│   └── utils.py                     # Shared helpers
+├── tests/                           # Unit tests + smoke test
+├── notebooks/                       # Exploration (strip outputs before commit)
+├── experiments/
+│   ├── runner.py                    # Load scenario, run solvers, collect metrics
+│   ├── animate.py                   # Side-by-side MP4 animation CLI
+│   ├── configs/                     # Scenario configs (S1/S2/S3)
+│   └── configs/optimizers/          # Per-solver parameter configs
+├── scripts/
+│   └── generate_videos.sh           # Regenerate all presentation MP4s
+└── results/
+    └── videos/                      # Committed presentation videos (MP4)
 ```
 
 ---
