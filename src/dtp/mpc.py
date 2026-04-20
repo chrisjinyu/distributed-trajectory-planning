@@ -44,6 +44,10 @@ Public interface (STABLE)
                    rho=1.0,
                    include_collision=True,
                    collision_slack_weight=1e4) -> LocalQP
+
+    build_penalty_qp(scenario, agent_id,
+                     collision_penalty_weight=1e3,
+                     include_collision=True) -> PenaltyLocalQP
 """
 
 from __future__ import annotations
@@ -186,4 +190,138 @@ def build_local_qp(
         n_ij=n_ij,
         slack=slack,
         rho=rho,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Distributed penalty-method per-agent QP (no consensus, no dual variables)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PenaltyLocalQP:
+    """Container for the per-agent penalty-method subproblem.
+
+    Unlike LocalQP, there are no consensus `tilde` variables and no dual
+    Parameters. Neighbor trajectories are treated as fixed external data:
+    their positions are baked into `collision_rhs[j]` (a single Parameter
+    holding `d_min + n_ij^T p_j_hat`), which keeps the QP DPP-compliant
+    without needing Parameter * Parameter products.
+    """
+
+    problem: cp.Problem
+    theta: cp.Variable  # own trajectory, (H+1, 4)
+    u: cp.Variable  # own controls, (H, 2)
+    x0: cp.Parameter = None  # type: ignore[assignment]
+    n_ij: dict[int, cp.Parameter] = field(default_factory=dict)  # (H+1, 2) per neighbor
+    collision_rhs: dict[int, cp.Parameter] = field(default_factory=dict)  # (H+1,) per neighbor
+    slack: dict[int, cp.Variable] = field(default_factory=dict)  # (H+1,) per neighbor
+
+
+def build_penalty_qp(
+    scenario: Scenario,
+    agent_id: int,
+    collision_penalty_weight: float = 1e3,
+    include_collision: bool = True,
+) -> PenaltyLocalQP:
+    """Construct agent i's local penalty-method subproblem.
+
+    Formulation per agent i:
+
+        minimize   sum_k ||theta_i[k] - x_ref_i[k]||_Q^2
+                 + sum_k ||u_i[k]||_R^2
+                 + w * sum_{j in N_i} ||s_ij||^2
+        s.t.       theta_i[0] = x0
+                   theta_i[k+1] = A theta_i[k] + B u_i[k]
+                   ||u_i[k]||_inf <= u_max
+                   n_ij[k]^T p_i[k] + s_ij[k] >= collision_rhs_ij[k]
+                   s_ij >= 0
+
+    where ``collision_rhs_ij[k] = d_min + n_ij[k]^T p_j_hat[k]`` is
+    precomputed by the driver from the latest broadcast of neighbor j's
+    position, so the QP sees only Parameter * Variable products and stays
+    DPP-compliant.
+
+    Parameters
+    ----------
+    scenario : Scenario
+    agent_id : int
+    collision_penalty_weight : float
+        Weight ``w`` on the sum-of-squared-slacks penalty. Small w trades
+        feasibility for conditioning; large w trades conditioning for
+        feasibility.
+    include_collision : bool
+
+    Returns
+    -------
+    PenaltyLocalQP
+    """
+    i = agent_id
+    H = scenario.H
+    A, B = double_integrator_2d(scenario.dt)
+    neighbors = scenario.neighbors(i)
+
+    # --- Decision variables ---
+    theta = cp.Variable((H + 1, 4), name=f"theta_{i}")
+    u = cp.Variable((H, 2), name=f"u_{i}")
+
+    # --- Parameters mutated between iterations ---
+    x0 = cp.Parameter(4, name=f"x0_{i}", value=scenario.x0[i])
+
+    n_ij: dict[int, cp.Parameter] = {}
+    collision_rhs: dict[int, cp.Parameter] = {}
+    if include_collision:
+        for j in neighbors:
+            n_ij[j] = cp.Parameter(
+                (H + 1, 2),
+                name=f"n_{i}{j}",
+                value=np.tile([1.0, 0.0], (H + 1, 1)),
+            )
+            collision_rhs[j] = cp.Parameter(
+                (H + 1,),
+                name=f"rhs_{i}{j}",
+                value=np.full(H + 1, scenario.d_min),
+            )
+
+    # --- Costs ---
+    Q = scenario.Q
+    R = scenario.R
+    x_ref = scenario.x_ref[i]
+
+    tracking_cost = sum(cp.quad_form(theta[k] - x_ref[k], cp.psd_wrap(Q)) for k in range(H + 1))
+    input_cost = sum(cp.quad_form(u[k], cp.psd_wrap(R)) for k in range(H))
+    local_cost = tracking_cost + input_cost
+
+    # --- Constraints on own trajectory ---
+    constraints = [theta[0] == x0]
+    for k in range(H):
+        constraints.append(theta[k + 1] == A @ theta[k] + B @ u[k])
+        constraints.append(cp.norm_inf(u[k]) <= scenario.u_max)
+
+    # --- Linearized collision half-spaces with slack + quadratic penalty ---
+    # n_ij[k]^T p_i[k] + s_ij[k] >= collision_rhs_ij[k]
+    # The RHS bakes in d_min + n_ij^T p_j_hat so we never multiply two
+    # Parameters inside the QP.
+    slack: dict[int, cp.Variable] = {}
+    slack_cost = 0
+    if include_collision:
+        for j in neighbors:
+            p_i = theta[:, 0:2]
+            inner = cp.sum(cp.multiply(n_ij[j], p_i), axis=1)  # (H+1,)
+            s = cp.Variable(H + 1, nonneg=True, name=f"slack_{i}{j}")
+            slack[j] = s
+            constraints.append(inner + s >= collision_rhs[j])
+            slack_cost = slack_cost + collision_penalty_weight * cp.sum_squares(s)
+
+    objective = cp.Minimize(local_cost + slack_cost)
+    problem = cp.Problem(objective, constraints)
+
+    return PenaltyLocalQP(
+        problem=problem,
+        theta=theta,
+        u=u,
+        x0=x0,
+        n_ij=n_ij,
+        collision_rhs=collision_rhs,
+        slack=slack,
     )
