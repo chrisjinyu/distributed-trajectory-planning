@@ -1,0 +1,9 @@
+# Centralized joint-QP reference with SCP re-linearization.
+# linearization_from_method seeds the initial collision normals from a
+# prior solver's trajectory in the same CLI run (defaults to penalty).
+# Without this, antipodal-swap scenarios can trap the SCP loop in a 1D
+# pass solution due to the straight-line warm-start's symmetry.
+method: centralized
+linearization_from_method: penalty
+params:
+  scp_iters: 5

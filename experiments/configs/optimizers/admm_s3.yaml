@@ -1,0 +1,23 @@
+# ADMM settings tuned for S3 (N=8 antipodal swap, complete graph).
+#
+# The default straight-line warm-start is degenerate at N=8 (all 8 drones
+# cross origin at the same time step), trapping ADMM at a broken fixed
+# point regardless of rho. Empirically (see experiments/try_admm_s3.py):
+#
+#   - initial_guess seeded from penalty output is required
+#   - rho must be ~300 (much higher than S1/S2's rho=5)
+#   - collision_slack_weight must be ~1e7 (100x default)
+#   - both rho=250 and rho=350 fail (narrow sweet spot)
+#
+# Tolerances match the Boyd-Parikh-Chu defaults used on S1/S2. At the
+# tuned rho/w_coll, ADMM converges in ~111 iters and reaches viol ~ 1e-4
+# with min_d = 0.500 (same physical outcome as the tighter 1e-6
+# tolerances but 4x faster).
+method: admm
+seed_from_method: penalty
+params:
+  rho: 300.0
+  max_iter: 500
+  eps_abs: 1.0e-4
+  eps_rel: 1.0e-3
+  collision_slack_weight: 1.0e7

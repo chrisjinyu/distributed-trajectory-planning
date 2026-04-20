@@ -1,0 +1,7 @@
+# Penalty settings for S3 (N=8). Tighter inter-drone coupling at N=8 needs
+# a stronger slack weight; w=2000 is the sweet spot that keeps the penalty
+# trajectory clean enough to also seed the centralized SCP linearization.
+method: penalty
+params:
+  w: 2000.0
+  max_iter: 500

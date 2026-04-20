@@ -1,0 +1,6 @@
+# Default penalty-method settings used for S1 (N=2) and S2 (N=4).
+# w=1000 matches the value used throughout notebook 02's main experiments.
+method: penalty
+params:
+  w: 1000.0
+  max_iter: 200

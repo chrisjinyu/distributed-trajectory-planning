@@ -1,0 +1,6 @@
+# Default Consensus ADMM settings used for S1 (N=2) and S2 (N=4).
+# rho=5 and max_iter=300 match notebook 02's main experiments.
+method: admm
+params:
+  rho: 5.0
+  max_iter: 300
