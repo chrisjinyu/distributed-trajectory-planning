@@ -1,0 +1,30 @@
+# S2: Four-drone antipodal swap on a ring communication graph
+#
+# Four drones start on a circle of radius 3 at 0, 90, 180, 270 degrees
+# and must swap to their antipodal points. All four trajectories cross
+# near the origin. The ring graph means each drone only shares collision
+# constraints with its two ring-neighbors; opposite-drone pairs (0-2 and
+# 1-3) are intentionally unconstrained to test the distributed setting.
+name: four_drone_ring
+description: Four drones on a circle swap to antipodal points; ring communication.
+
+N: 4
+H: 25
+dt: 0.2
+u_max: 3.0
+d_min: 0.5
+
+# Positions at 0, 90, 180, 270 degrees on a circle of radius 3.
+x0:
+  - [3.0, 0.0, 0.0, 0.0]
+  - [0.0, 3.0, 0.0, 0.0]
+  - [-3.0, 0.0, 0.0, 0.0]
+  - [0.0, -3.0, 0.0, 0.0]
+
+goals:
+  - [-3.0, 0.0]
+  - [0.0, -3.0]
+  - [3.0, 0.0]
+  - [0.0, 3.0]
+
+graph: ring

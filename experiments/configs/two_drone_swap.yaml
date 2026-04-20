@@ -1,0 +1,26 @@
+# S1: Two-drone antipodal swap (matches notebook 01 test 2)
+#
+# Two drones start 6 m apart on the x-axis and must exchange positions.
+# Simplest nontrivial collision-avoidance scenario. Serves as a sanity
+# check that all three methods (penalty, ADMM, centralized) produce a
+# coordinated side-step.
+name: two_drone_swap
+description: Two drones swap along x-axis, must avoid each other at origin.
+
+N: 2
+H: 20
+dt: 0.2
+u_max: 3.0
+d_min: 0.5
+
+# Each row is [px, py, vx, vy]. Velocities start at zero.
+x0:
+  - [-3.0, 0.0, 0.0, 0.0]
+  - [3.0, 0.0, 0.0, 0.0]
+
+# Goal positions (2D). Each drone must reach its antipodal start.
+goals:
+  - [3.0, 0.0]
+  - [-3.0, 0.0]
+
+graph: complete  # complete | ring

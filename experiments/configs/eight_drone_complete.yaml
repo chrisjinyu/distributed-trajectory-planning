@@ -1,0 +1,45 @@
+# S3: Eight-drone antipodal swap on a complete communication graph
+#
+# Eight drones placed at 45-degree intervals on a circle of radius 3
+# swap to their antipodal points. All trajectories cross near the origin.
+# Unlike S2, S3 uses a complete graph so every pair is directly
+# constrained -- this is the clean scalability test for N=8 per the
+# project proposal. A ring graph on N=8 antipodal-swap leaves too many
+# unconstrained crossing pairs (notably drone 0 and drone 4 on opposite
+# sides of the ring) which all methods then crash into each other on.
+#
+# Longer horizon (H=30) to give the larger fleet room to coordinate a
+# single-direction swirl around the origin.
+name: eight_drone_complete
+description: Eight drones on a circle swap antipodally; complete communication.
+
+N: 8
+H: 30
+dt: 0.2
+u_max: 3.0
+d_min: 0.5
+
+# Positions at 0, 45, 90, ..., 315 degrees on a circle of radius 3.
+# cos(45°)*3 = sin(45°)*3 ≈ 2.1213.
+x0:
+  - [3.0, 0.0, 0.0, 0.0]
+  - [2.1213, 2.1213, 0.0, 0.0]
+  - [0.0, 3.0, 0.0, 0.0]
+  - [-2.1213, 2.1213, 0.0, 0.0]
+  - [-3.0, 0.0, 0.0, 0.0]
+  - [-2.1213, -2.1213, 0.0, 0.0]
+  - [0.0, -3.0, 0.0, 0.0]
+  - [2.1213, -2.1213, 0.0, 0.0]
+
+# Antipodal goals: each drone swaps to the opposite side of the circle.
+goals:
+  - [-3.0, 0.0]
+  - [-2.1213, -2.1213]
+  - [0.0, -3.0]
+  - [2.1213, -2.1213]
+  - [3.0, 0.0]
+  - [2.1213, 2.1213]
+  - [0.0, 3.0]
+  - [-2.1213, 2.1213]
+
+graph: complete
