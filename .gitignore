@@ -32,9 +32,8 @@ env/
 *.swp
 .DS_Store
 
-# --- Experiment outputs (keep folder, ignore contents) ---
-results/*
-!results/.gitkeep
+# --- Experiment outputs ---
+# results/videos/*.mp4 are committed (slide-companion animations).
 experiments/runs/
 *.npz
 *.pkl
