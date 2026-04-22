@@ -42,3 +42,16 @@ experiments/runs/
 
 # --- OS ---
 Thumbs.db
+
+# --- LaTeX build artifacts (keep the final .pdf, ignore intermediates) ---
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.nav
+*.out
+*.snm
+*.synctex.gz
+*.toc
+*.vrb
