@@ -1,0 +1,9 @@
+# ADMM settings used in the lightning-talk slides for S2 (N=4 ring).
+# Same rho as admm_default.yaml, but collision_slack_weight=1e7 so the
+# w_coll knob is unified across S2 and S3 (admm_s3.yaml also uses 1e7).
+# This is strictly more conservative than admm_default's default of 1e4.
+method: admm
+params:
+  rho: 5.0
+  max_iter: 300
+  collision_slack_weight: 1.0e7

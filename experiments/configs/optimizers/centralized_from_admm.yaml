@@ -1,0 +1,10 @@
+# Centralized joint QP seeded from ADMM's feasible trajectory, used in
+# the lightning-talk slide figures and videos. centralized_default.yaml
+# seeds from penalty; for S2/S3 that produces a degenerate SCP
+# linearization (penalty trajectory embeds a collision, so the initial
+# normals are ill-conditioned). ADMM is feasible to solver tolerance and
+# gives a clean warm-start, recovering the true centralized optimum.
+method: centralized
+seed_from_method: admm
+params:
+  scp_iters: 5

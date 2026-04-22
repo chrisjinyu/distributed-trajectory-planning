@@ -69,7 +69,8 @@ def _load_optimizer_config(path: str | Path) -> OptimizerConfig:
 def _seed_x_from(prior: list[MethodResult], src: str | None) -> np.ndarray | None:
     if src is None:
         return None
-    match = next((r.x for r in prior if r.name.startswith(src)), None)
+    src_lower = src.lower()
+    match = next((r.x for r in prior if r.name.lower().startswith(src_lower)), None)
     if match is None:
         print(
             f"[warn] requested seed_from_method={src!r} but no prior result "

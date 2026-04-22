@@ -117,8 +117,8 @@ scenario/optimizer combination:
 uv run python -m experiments.animate \
     --scenario experiments/configs/four_drone_ring.yaml \
     --optimizer experiments/configs/optimizers/penalty_default.yaml \
-    --optimizer experiments/configs/optimizers/admm_default.yaml \
-    --optimizer experiments/configs/optimizers/centralized_default.yaml \
+    --optimizer experiments/configs/optimizers/admm_s2.yaml \
+    --optimizer experiments/configs/optimizers/centralized_from_admm.yaml \
     --output results/videos/my_run.mp4 --fps 3
 ```
 
