@@ -7,6 +7,7 @@ scenario YAMLs in experiments/configs/ -- no new algorithmic code.
 Figures produced:
   fig_s2_trajectories.pdf   -- 3 xy-panels (penalty / ADMM / centralized), S2
   fig_w_sensitivity.pdf     -- two-panel w-sweep on S2 (violation + iterations)
+  fig_rho_sensitivity.pdf   -- two-panel rho-sweep on S2 (violation + iterations) for ADMM
   fig_s3_trajectories.pdf   -- 3 xy-panels on S3 (N=8)
 
 Invoke from the repo root:
@@ -116,35 +117,65 @@ def figure_s2_trajectories():
     print(f"[fig_s2_trajectories] wrote {out}")
 
 
+def _sensitivity_plot(ax_v, ax_i, xs, viols, iters, x_label, color, title_param):
+    """Two-panel sensitivity plot: violation (linear y, [0, 0.5]) and iterations."""
+    ax_v.semilogx(xs, viols, "o-", color=color, linewidth=1.8, markersize=7)
+    ax_v.set_xlabel(x_label, fontsize=11)
+    ax_v.set_ylabel("Max constraint violation (m)", fontsize=11)
+    ax_v.set_ylim(0.0, 0.5)
+    ax_v.grid(True, which="both", alpha=0.3)
+    ax_v.set_title(f"(a) Violation vs ${title_param}$", fontsize=12)
+
+    ax_i.semilogx(xs, iters, "s-", color=color, linewidth=1.8, markersize=7)
+    ax_i.set_xlabel(x_label, fontsize=11)
+    ax_i.set_ylabel("Iterations", fontsize=11)
+    ax_i.grid(True, which="both", alpha=0.3)
+    ax_i.set_title(f"(b) Iterations vs ${title_param}$", fontsize=12)
+
+
 def figure_w_sensitivity():
     print("[fig_w_sensitivity] sweeping w on S2 ...")
     scenario = load_scenario(CONFIG_DIR / "four_drone_ring.yaml")
     ws = np.logspace(2, 4, 8).tolist()
     viols, iters = [], []
     for w in ws:
-        res = run_penalty(scenario, w=w, max_iter=500)
+        res = run_penalty(scenario, w=w, max_iter=10000)
         viols.append(res.max_collision_violation)
         iters.append(res.iterations)
-        print(f"  w={w:>8.1f} | iters={res.iterations:3d} | viol={res.max_collision_violation:.3e}")
+        print(f"  w={w:>8.1f} | iters={res.iterations:5d} | viol={res.max_collision_violation:.3e}")
 
     fig, (ax_v, ax_i) = plt.subplots(1, 2, figsize=(9.5, 3.4))
-    ax_v.semilogx(ws, viols, "o-", color=PANEL_COLORS["penalty"], linewidth=1.8, markersize=7)
-    ax_v.set_xlabel("Penalty weight $w$", fontsize=11)
-    ax_v.set_ylabel("Max constraint violation (m)", fontsize=11)
-    ax_v.grid(True, which="both", alpha=0.3)
-    ax_v.set_title("(a) Violation vs $w$", fontsize=12)
-
-    ax_i.semilogx(ws, iters, "s-", color=PANEL_COLORS["penalty"], linewidth=1.8, markersize=7)
-    ax_i.set_xlabel("Penalty weight $w$", fontsize=11)
-    ax_i.set_ylabel("Iterations", fontsize=11)
-    ax_i.grid(True, which="both", alpha=0.3)
-    ax_i.set_title("(b) Iterations vs $w$", fontsize=12)
-
+    _sensitivity_plot(ax_v, ax_i, ws, viols, iters,
+                      "Penalty weight $w$", PANEL_COLORS["penalty"], "w")
     fig.tight_layout()
     out = FIG_DIR / "fig_w_sensitivity.pdf"
     fig.savefig(out, bbox_inches="tight")
     plt.close(fig)
     print(f"[fig_w_sensitivity] wrote {out}")
+
+
+def figure_rho_sensitivity():
+    print("[fig_rho_sensitivity] sweeping rho on S2 ...")
+    scenario = load_scenario(CONFIG_DIR / "four_drone_ring.yaml")
+    rhos = np.logspace(-1, 3, 9).tolist()  # 0.1 to 1000
+    viols, iters = [], []
+    for rho in rhos:
+        res = run_admm(scenario, rho=rho, max_iter=10000, collision_slack_weight=1e7)
+        viols.append(res.max_collision_violation)
+        iters.append(res.iterations)
+        print(
+            f"  rho={rho:>8.2f} | iters={res.iterations:5d} "
+            f"| viol={res.max_collision_violation:.3e}"
+        )
+
+    fig, (ax_v, ax_i) = plt.subplots(1, 2, figsize=(9.5, 3.4))
+    _sensitivity_plot(ax_v, ax_i, rhos, viols, iters,
+                      "ADMM penalty $\\rho$", PANEL_COLORS["ADMM"], "\\rho")
+    fig.tight_layout()
+    out = FIG_DIR / "fig_rho_sensitivity.pdf"
+    fig.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[fig_rho_sensitivity] wrote {out}")
 
 
 def figure_s3_trajectories():
@@ -185,6 +216,7 @@ def main():
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     figure_s2_trajectories()
     figure_w_sensitivity()
+    figure_rho_sensitivity()
     figure_s3_trajectories()
     print("\nAll figures written to", FIG_DIR)
 
